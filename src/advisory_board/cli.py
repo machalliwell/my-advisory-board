@@ -1,5 +1,7 @@
 """CLI interface for the Advisory Board tool."""
 
+import json
+
 import click
 
 from . import database as db
@@ -100,7 +102,100 @@ def ingest(source, advisor, title):
     final_title = title or auto_title
     source_id = db.add_source(conn, adv["id"], final_title, source_type, origin)
     count = db.add_chunks(conn, source_id, adv["id"], chunks)
+
+    # Score and report advice density
+    scores = [ingestion.score_advice_density(c) for c in chunks]
+    avg_score = sum(scores) / len(scores) if scores else 0
+    high_value = sum(1 for s in scores if s >= 5)
+
     click.echo(f"Ingested '{final_title}' ({source_type}): {count} chunks stored for {advisor}.")
+    click.echo(f"  Advice density: avg {avg_score:.1f}/chunk, {high_value} high-value chunks")
+
+
+# --- Import wisdom data from prototype ---
+
+
+@main.command("import-wisdom")
+@click.argument("json_path", type=click.Path(exists=True))
+@click.option("--advisor", "-a", default=None, help="Import all under one advisor name (default: per-guest).")
+def import_wisdom(json_path, advisor):
+    """Import wisdom_data.json from the PM Wisdom Engine prototype.
+
+    Bulk-loads episodes and wisdom chunks. Use --advisor to group everything
+    under a single advisor, or omit to create one advisor per guest.
+    """
+    conn = get_db()
+
+    with open(json_path) as f:
+        data = json.load(f)
+
+    # Detect format: compact (ep/wc/tp) or full (episodes/wisdom_chunks/topics)
+    episodes = data.get("ep", data.get("episodes", []))
+    wisdom_chunks = data.get("wc", data.get("wisdom_chunks", []))
+    topics = data.get("tp", data.get("topics", {}))
+
+    if not episodes and not wisdom_chunks:
+        click.echo("No episodes or wisdom chunks found in the file.")
+        return
+
+    click.echo(f"Found {len(episodes)} episodes, {len(wisdom_chunks)} wisdom chunks, {len(topics)} topics.")
+
+    # Track advisors created
+    advisor_cache = {}
+
+    def get_or_create_advisor(name, desc=""):
+        if name in advisor_cache:
+            return advisor_cache[name]
+        adv = db.get_advisor(conn, name)
+        if not adv:
+            aid = db.create_advisor(conn, name, desc)
+            advisor_cache[name] = aid
+        else:
+            advisor_cache[name] = adv["id"]
+        return advisor_cache[name]
+
+    if advisor:
+        # Single advisor mode
+        advisor_id = get_or_create_advisor(advisor, f"Imported from {json_path}")
+        # Import episodes as sources
+        for ep in episodes:
+            guest = ep.get("g", ep.get("guest", "Unknown"))
+            title = ep.get("t", ep.get("title", guest))
+            db.add_source(conn, advisor_id, title, "podcast", ep.get("yt", ep.get("youtube_url", "")))
+
+        # Import wisdom chunks
+        if wisdom_chunks:
+            source_id = db.add_source(conn, advisor_id, "Wisdom Chunks (top advice)", "wisdom", json_path)
+            texts = [c.get("t", c.get("text", "")) for c in wisdom_chunks]
+            texts = [t for t in texts if t.strip()]
+            db.add_chunks(conn, source_id, advisor_id, texts)
+            click.echo(f"Imported {len(texts)} wisdom chunks under '{advisor}'.")
+    else:
+        # Per-guest mode: create one advisor per unique guest
+        guest_chunks = {}
+        for wc in wisdom_chunks:
+            guest = wc.get("g", wc.get("guest", "Unknown"))
+            text = wc.get("t", wc.get("text", ""))
+            if text.strip():
+                guest_chunks.setdefault(guest, []).append(text)
+
+        for guest, chunks in guest_chunks.items():
+            advisor_id = get_or_create_advisor(guest)
+            ep_title = guest  # find matching episode title
+            for ep in episodes:
+                if ep.get("g", ep.get("guest", "")) == guest:
+                    ep_title = ep.get("t", ep.get("title", guest))
+                    break
+            source_id = db.add_source(conn, advisor_id, ep_title, "podcast", "")
+            db.add_chunks(conn, source_id, advisor_id, chunks)
+
+        click.echo(f"Imported {len(wisdom_chunks)} chunks across {len(guest_chunks)} advisors.")
+
+    # Store topics as metadata if present
+    if topics:
+        click.echo(f"  {len(topics)} topic indexes available.")
+
+    click.echo("Done! Try: advisory-board ask 'your question here'")
 
 
 # --- Ask ---
@@ -131,8 +226,46 @@ def ask(question, advisor, limit):
 
     click.echo(f"Found {len(chunks)} relevant chunks. Consulting {'the board' if not advisor_name else advisor_name}...\n")
     client = llm.get_client()
-    answer = llm.ask_board(client, question, chunks, advisor_name=advisor_name)
+    answer, advisors_consulted = llm.ask_board(client, question, chunks, advisor_name=advisor_name)
     click.echo(answer)
+
+    # Show sources consulted
+    if advisors_consulted:
+        click.echo(f"\n--- Sources consulted: {', '.join(advisors_consulted)} ---")
+
+
+# --- LinkedIn ---
+
+
+@main.command()
+@click.argument("topic")
+@click.option("--advisor", "-a", default=None, help="Draw from a specific advisor's knowledge.")
+@click.option("--limit", "-n", default=15, help="Number of context chunks to use.")
+def linkedin(topic, advisor, limit):
+    """Generate a LinkedIn post draft from your advisory board's knowledge."""
+    conn = get_db()
+
+    advisor_id = None
+    if advisor:
+        adv = db.get_advisor(conn, advisor)
+        if not adv:
+            click.echo(f"Advisor '{advisor}' not found.")
+            return
+        advisor_id = adv["id"]
+
+    chunks = db.search_chunks(conn, topic, advisor_id=advisor_id, limit=limit)
+    if not chunks:
+        click.echo("No relevant content found. Ingest some sources first.")
+        return
+
+    click.echo(f"Drawing on {len(chunks)} chunks to draft LinkedIn post...\n")
+    client = llm.get_client()
+    post, advisors_consulted = llm.generate_linkedin(client, topic, chunks)
+    click.echo(post)
+
+    if advisors_consulted:
+        click.echo(f"\n--- Sources consulted: {', '.join(advisors_consulted)} ---")
+    click.echo("\n[Tip: Replace the [YOUR TAKE] placeholder with your personal experience]")
 
 
 # --- Extract ---
@@ -210,6 +343,29 @@ def generate(prompt, advisor, content_type, limit):
     client = llm.get_client()
     result = llm.generate_content(client, prompt, chunks, content_type=content_type)
     click.echo(result)
+
+
+# --- Topics ---
+
+
+@main.command()
+@click.argument("json_path", type=click.Path(exists=True))
+def topics(json_path):
+    """Browse available topics from a wisdom_data.json file."""
+    with open(json_path) as f:
+        data = json.load(f)
+
+    topic_map = data.get("tp", data.get("topics", {}))
+    if not topic_map:
+        click.echo("No topics found in this file.")
+        return
+
+    click.echo(f"\n{len(topic_map)} topics available:\n")
+    for topic in sorted(topic_map.keys()):
+        ep_count = len(topic_map[topic])
+        click.echo(f"  {topic} ({ep_count} episodes)")
+
+    click.echo(f"\nTip: Use these topics with 'advisory-board ask' or 'advisory-board linkedin'")
 
 
 # --- List sources/frameworks ---

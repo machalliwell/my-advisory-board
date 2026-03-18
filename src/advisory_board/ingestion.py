@@ -75,6 +75,30 @@ def read_text_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+ADVICE_SIGNALS = [
+    'framework', 'principle', 'rule', 'lesson', 'mistake', 'advice', 'recommend',
+    'strategy', 'tactic', 'approach', 'important', 'critical', 'key', 'secret',
+    'never', 'always', 'best', 'worst', 'should', 'biggest', 'number one',
+    'first thing', 'most important', 'what i learned', "here's what", 'tip',
+    'playbook', 'model', 'how to', 'step', 'process', 'system', 'method',
+    'hire', 'fire', 'prioriti', 'roadmap', 'metric', 'okr', 'kpi',
+    'retention', 'growth', 'product market fit', 'stakeholder', 'leadership',
+    'decision', 'trade-off', 'tradeoff', 'scope', 'ship', 'launch', 'mvp',
+]
+
+
+def score_advice_density(text: str) -> int:
+    """Score a chunk for how advice-rich it is, using signal words."""
+    text_lower = text.lower()
+    score = sum(1 for s in ADVICE_SIGNALS if s in text_lower)
+    word_count = len(text.split())
+    if word_count > 100:
+        score += 2
+    if word_count > 200:
+        score += 2
+    return score
+
+
 def ingest_source(path_or_url: str) -> tuple[str, str, str, list[str]]:
     """
     Ingest a source and return (title, source_type, origin, chunks).

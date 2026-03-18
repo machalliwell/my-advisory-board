@@ -1,7 +1,7 @@
 """Tests for the ingestion module."""
 
 import pytest
-from advisory_board.ingestion import chunk_text
+from advisory_board.ingestion import chunk_text, score_advice_density
 
 
 def test_chunk_text_basic():
@@ -25,3 +25,28 @@ def test_chunk_text_long():
 def test_chunk_text_empty():
     assert chunk_text("") == []
     assert chunk_text("   \n\n  ") == []
+
+
+def test_score_advice_density_high():
+    text = (
+        "The most important framework for prioritization is RICE. "
+        "My biggest lesson was that you should always ship the MVP first. "
+        "The key principle is to hire for growth and leadership potential. "
+        "This strategy and approach helped us avoid the worst mistakes."
+    )
+    score = score_advice_density(text)
+    assert score >= 8  # Many signal words
+
+
+def test_score_advice_density_low():
+    text = "The weather was nice today. We went for a walk in the park."
+    score = score_advice_density(text)
+    assert score <= 2
+
+
+def test_score_advice_density_word_count_bonus():
+    short = "This is a key framework for leadership."
+    long = ("This is a key framework for leadership. " * 30)
+    short_score = score_advice_density(short)
+    long_score = score_advice_density(long)
+    assert long_score > short_score  # Bonus for word count

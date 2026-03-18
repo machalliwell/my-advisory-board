@@ -40,19 +40,37 @@ advisory-board advisor add "Paul Graham" -d "Essayist, YC founder"
 advisory-board ingest http://paulgraham.com/ds.html -a "Paul Graham"
 ```
 
+### Quick Start with Podcast Data
+
+If you have `wisdom_data.json` from the PM Wisdom Engine prototype:
+
+```bash
+# Import all 314 episodes, creating one advisor per guest
+advisory-board import-wisdom wisdom_data.json
+
+# Or group everything under one advisor
+advisory-board import-wisdom wisdom_data.json -a "Lenny's Podcast"
+
+# Browse available topics
+advisory-board topics wisdom_data.json
+```
+
 ### 4. Use your board
 
 ```bash
-# Ask your board a question
+# Ask your board a question (multi-perspective, with attribution)
 advisory-board ask "How should I think about building wealth?"
 
 # Ask a specific advisor
 advisory-board ask "What makes a great startup idea?" -a "Paul Graham"
 
+# Generate a LinkedIn post draft
+advisory-board linkedin "prioritization frameworks for PMs"
+
 # Extract frameworks from an advisor's material
 advisory-board extract -a "Naval Ravikant" -n "Wealth Creation" -d "Principles for building wealth"
 
-# Generate content using your board's knowledge
+# Generate other content types
 advisory-board generate "Write about the intersection of leverage and specific knowledge" --type "blog post"
 ```
 
@@ -64,21 +82,38 @@ advisory-board generate "Write about the intersection of leverage and specific k
 | `advisor list` | List all advisors with source/framework counts |
 | `advisor remove <name>` | Remove an advisor and all their data |
 | `ingest <source> -a <advisor>` | Ingest a PDF, URL, or text file |
+| `import-wisdom <json>` | Bulk-import from wisdom_data.json (per-guest or single advisor) |
 | `ask <question>` | Ask your entire board (or a specific advisor with `-a`) |
+| `linkedin <topic>` | Generate a LinkedIn post draft with hook/insight/CTA structure |
 | `extract -a <advisor> -n <name>` | Extract frameworks from an advisor's sources |
 | `generate <prompt>` | Generate content using your board's knowledge |
+| `topics <json>` | Browse topic indexes from a wisdom data file |
 | `sources` | List all ingested sources |
 | `frameworks -a <advisor>` | List or view extracted frameworks |
 
 ## How It Works
 
-1. **Ingest** — PDFs, URLs, and text files are parsed, chunked, and stored in a local SQLite database with FTS5 full-text search indexing.
-2. **Search** — When you ask a question or generate content, relevant chunks are retrieved using full-text search.
-3. **Synthesize** — Retrieved chunks are passed as context to Claude, which synthesizes an answer grounded in your advisory board's knowledge.
+1. **Ingest** — PDFs, URLs, text files, and podcast data are parsed, chunked, scored for advice density, and stored in a local SQLite database with FTS5 full-text search indexing.
+2. **Search** — When you ask a question or generate content, relevant chunks are retrieved using full-text search, ranked by relevance.
+3. **Synthesize** — Retrieved chunks are passed as context to Claude, which synthesizes an answer with:
+   - **Guest attribution** — Every insight attributed to specific advisors by name
+   - **Multi-perspective** — 2-4 different viewpoints, including where advisors disagree
+   - **Actionable output** — "What to do Monday morning" practical actions
+   - **Framework references** — Real frameworks (RICE, ICE, JTBD, etc.) when applicable
+
+## Prompt Architecture
+
+The system uses specialized prompt templates adapted from the PM Wisdom Engine prototype:
+
+- **Advisory prompt** — Enforces attribution, multi-perspective synthesis, disagreement surfacing, and practical actions
+- **LinkedIn prompt** — Hook/insight/your-take/CTA structure, optimized for 150-250 word posts
+- **Extract prompt** — Pulls named frameworks with descriptions, principles, and application guidance
+- **Generate prompt** — Grounds content in source material with natural attribution
 
 ## Architecture
 
 - **Storage**: SQLite with FTS5 full-text search (zero dependencies, local-first)
+- **Scoring**: Advice density scoring ranks chunks by actionable content
 - **LLM**: Claude via the Anthropic API
 - **CLI**: Click
 - **Data**: Stored in `~/.advisory-board/board.db`

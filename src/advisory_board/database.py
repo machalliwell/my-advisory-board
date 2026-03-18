@@ -161,6 +161,16 @@ def add_chunks(
     return len(rows)
 
 
+def _sanitize_fts_query(query: str) -> str:
+    """Sanitize a query string for FTS5: strip special chars, OR together words."""
+    import re
+    words = re.findall(r'[a-zA-Z0-9]+', query)
+    if not words:
+        return '""'
+    # Quote each word and OR them together for broad matching
+    return " OR ".join(f'"{w}"' for w in words)
+
+
 def search_chunks(
     conn: sqlite3.Connection,
     query: str,
@@ -168,6 +178,7 @@ def search_chunks(
     limit: int = 10,
 ) -> list[dict]:
     """Full-text search across chunks, optionally filtered by advisor."""
+    fts_query = _sanitize_fts_query(query)
     if advisor_id is not None:
         rows = conn.execute(
             """
@@ -181,7 +192,7 @@ def search_chunks(
             ORDER BY rank
             LIMIT ?
             """,
-            (query, advisor_id, limit),
+            (fts_query, advisor_id, limit),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -196,7 +207,7 @@ def search_chunks(
             ORDER BY rank
             LIMIT ?
             """,
-            (query, limit),
+            (fts_query, limit),
         ).fetchall()
     return [dict(r) for r in rows]
 

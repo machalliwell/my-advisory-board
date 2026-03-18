@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+.pytest_cache
+.git
+node_modules
+frontend/node_modules
+*.egg-info
+.env
+chatprd-transcripts
+lenny-official
+full_index.json
+pm-wisdom-engine.zip
+static/

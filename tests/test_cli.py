@@ -2,22 +2,31 @@
 
 import json
 import tempfile
-import os
+from pathlib import Path
+from unittest.mock import patch
 
 from click.testing import CliRunner
 from advisory_board.cli import main
+from advisory_board import database as db
+
+
+def _temp_db():
+    """Create a temp DB path for isolated tests."""
+    tmp = tempfile.mktemp(suffix=".db")
+    return Path(tmp)
 
 
 def test_advisor_add_and_list():
     runner = CliRunner()
-    with runner.isolated_filesystem():
-        os.environ["ADVISORY_BOARD_DB"] = ":memory:"
+    tmp_path = _temp_db()
+    with patch.object(db, "DEFAULT_DB_PATH", tmp_path):
         result = runner.invoke(main, ["advisor", "add", "Test Person", "-d", "A test"])
         assert result.exit_code == 0
         assert "Added advisor: Test Person" in result.output
 
         result = runner.invoke(main, ["advisor", "list"])
         assert "Test Person" in result.output
+    tmp_path.unlink(missing_ok=True)
 
 
 def test_import_wisdom_single_advisor():

@@ -29,15 +29,22 @@ export default function ExpertDirectory({ guests, categories, onGuestClick }: Ex
     return list;
   }, [guests, filter, search]);
 
-  // Show a curated set of popular categories for the filter pills
+  // Show a curated set of popular categories for the filter pills, with counts
   const popularCategories = useMemo(() => {
     const popular = [
       'Product Management', 'Leadership', 'Growth Strategy', 'Ai',
       'Startup Growth', 'Hiring', 'Strategy', 'Design',
       'Engineering', 'Marketing', 'Career Growth', 'Entrepreneurship',
     ];
-    return popular.filter(c => categories.includes(c));
-  }, [categories]);
+    const available = popular.filter(c => categories.includes(c));
+    const counts: Record<string, number> = {};
+    for (const cat of available) {
+      counts[cat] = guests.filter(g => g.topics.includes(cat)).length;
+    }
+    return { list: available, counts };
+  }, [categories, guests]);
+
+  const displayName = (cat: string) => (cat === 'Ai' ? 'AI' : cat);
 
   return (
     <div>
@@ -72,22 +79,19 @@ export default function ExpertDirectory({ guests, categories, onGuestClick }: Ex
         >
           All ({guests.length})
         </button>
-        {popularCategories.map(cat => {
-          const count = guests.filter(g => g.topics.includes(cat)).length;
-          return (
-            <button
-              key={cat}
-              onClick={() => setFilter(filter === cat ? 'All' : cat)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                filter === cat
-                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                  : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              {cat} ({count})
-            </button>
-          );
-        })}
+        {popularCategories.list.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setFilter(filter === cat ? 'All' : cat)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+              filter === cat
+                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
+            }`}
+          >
+            {displayName(cat)} ({popularCategories.counts[cat]})
+          </button>
+        ))}
       </div>
 
       {/* Guest count */}

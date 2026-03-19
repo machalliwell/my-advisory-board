@@ -53,6 +53,7 @@ export default function Home() {
   const [generatedContent, setGeneratedContent] = useState('');
   const [contentFormat, setContentFormat] = useState<ContentFormat>('linkedin');
   const [isGeneratingContent, setIsGeneratingContent] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -167,6 +168,7 @@ export default function Home() {
     setSynthesizedText('');
     setSynthesisError(null);
     setCopied(false);
+    setContentError(null);
     setIsGeneratingContent(false);
   }, []);
 
@@ -177,6 +179,7 @@ export default function Home() {
       setGeneratedContent('');
       setContentFormat(format);
       setIsGeneratingContent(true);
+      setContentError(null);
       setCopied(false);
 
       try {
@@ -192,6 +195,7 @@ export default function Home() {
         });
 
         if (!res.ok) {
+          setContentError('Failed to generate content. Please try again.');
           setIsGeneratingContent(false);
           return;
         }
@@ -208,7 +212,7 @@ export default function Home() {
           setGeneratedContent(fullText);
         }
       } catch {
-        // Silent fail — user can retry
+        setContentError('Failed to connect to content service. Please try again.');
       } finally {
         setIsGeneratingContent(false);
       }
@@ -348,11 +352,18 @@ export default function Home() {
             />
 
             {/* Content Generation */}
-            {synthesizedText && !isSynthesizing && !generatedContent && (
+            {synthesizedText && !isSynthesizing && (
               <ContentStylePicker
                 onGenerate={handleGenerateContent}
                 isGenerating={isGeneratingContent}
               />
+            )}
+
+            {/* Content generation error */}
+            {contentError && (
+              <div className="mt-3 px-4 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+                {contentError}
+              </div>
             )}
 
             {/* Generated Content Preview */}

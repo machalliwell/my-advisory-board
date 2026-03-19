@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
   let systemPrompt: string;
   let userMessage: string;
   let maxTokens: number;
+  let temperature: number;
 
   if (mode === 'advisor') {
     // Advisory mode: synthesize from chunks
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
     systemPrompt = buildAdvisorPrompt(chunks);
     userMessage = query;
     maxTokens = 1500;
+    temperature = 0.7;
   } else if (mode === 'linkedin' || mode === 'blog') {
     // Content generation: transform synthesized answer
     if (!synthesizedAnswer) {
@@ -137,6 +139,7 @@ export async function POST(request: NextRequest) {
     systemPrompt = buildContentPrompt(mode, style || 'conversational', synthesizedAnswer);
     userMessage = query || 'Generate the content based on the synthesized answer provided.';
     maxTokens = mode === 'blog' ? 2500 : 1500;
+    temperature = 0.8;
   } else {
     return new Response(
       JSON.stringify({ error: 'Invalid mode' }),
@@ -157,7 +160,7 @@ export async function POST(request: NextRequest) {
         { role: 'user', content: userMessage },
       ],
       max_tokens: maxTokens,
-      temperature: 0.8,
+      temperature,
       stream: true,
     }),
   });

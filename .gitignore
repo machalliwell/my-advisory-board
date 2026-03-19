@@ -24,6 +24,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env
 
 # vercel
 .vercel
@@ -31,6 +32,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+*.pyc
+__pycache__/
+*.egg-info/
+.pytest_cache/
+*.db
 
 # data repos (cloned at build time)
 /data/

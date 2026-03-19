@@ -35,6 +35,7 @@ import TopicPills from '@/components/TopicPills';
 import StatsModal from '@/components/StatsModal';
 import AchievementToast from '@/components/AchievementToast';
 import LinkedInPreview from '@/components/LinkedInPreview';
+import SynthesizedAnswer from '@/components/SynthesizedAnswer';
 
 const SUGGESTED_QUESTIONS = [
   'How do I prioritize my roadmap?',
@@ -61,6 +62,9 @@ export default function Home() {
   const [linkedInPost, setLinkedInPost] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeQuery, setActiveQuery] = useState('');
+  const [synthesizedText, setSynthesizedText] = useState('');
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSearchIndex().then(idx => {
@@ -76,6 +80,52 @@ export default function Home() {
       setToasts(prev => prev.slice(achievements.length));
     }, 3000);
   }, []);
+
+  const synthesize = useCallback(
+    async (searchQuery: string, searchResults: SearchResult[], currentMode: AppMode) => {
+      setSynthesizedText('');
+      setSynthesisError(null);
+      setIsSynthesizing(true);
+
+      try {
+        const chunks = searchResults.slice(0, 6).map(r => ({
+          guest: r.chunk.guest,
+          title: r.chunk.title,
+          text: trimQuote(r.chunk.text, 300),
+        }));
+
+        const res = await fetch('/api/synthesize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: searchQuery, chunks, mode: currentMode }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          setSynthesisError(err.error || 'Failed to synthesize answer');
+          setIsSynthesizing(false);
+          return;
+        }
+
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          setSynthesizedText(fullText);
+        }
+      } catch {
+        setSynthesisError('Failed to connect to synthesis service. The raw quotes are still available below.');
+      } finally {
+        setIsSynthesizing(false);
+      }
+    },
+    []
+  );
 
   const handleSearch = useCallback(
     (searchQuery: string) => {
@@ -93,8 +143,13 @@ export default function Home() {
       const update = processSearch(gameState, searchResults);
       setGameState(update.newState);
       showToast(update.newAchievements);
+
+      // Synthesize answer from results
+      if (searchResults.length > 0) {
+        synthesize(searchQuery, searchResults, mode);
+      }
     },
-    [index, gameState, showToast]
+    [index, gameState, showToast, synthesize, mode]
   );
 
   const handleTopicClick = useCallback(
@@ -112,8 +167,13 @@ export default function Home() {
       const update = processSearch(gameState, topicResults);
       setGameState(update.newState);
       showToast(update.newAchievements);
+
+      // Synthesize answer from results
+      if (topicResults.length > 0) {
+        synthesize(`What do Lenny's guests recommend about ${topic}?`, topicResults, mode);
+      }
     },
-    [index, gameState, showToast]
+    [index, gameState, showToast, synthesize, mode]
   );
 
   const handleLinkedInGenerate = useCallback(() => {
@@ -150,6 +210,8 @@ export default function Home() {
     setHasSearched(false);
     setLinkedInPost('');
     setActiveQuery('');
+    setSynthesizedText('');
+    setSynthesisError(null);
   }, []);
 
   const levelInfo = getLevelInfo(gameState.xp);
@@ -205,7 +267,7 @@ export default function Home() {
                 : 'Draft your next viral LinkedIn post'}
             </h1>
             <p className="text-gray-400 text-center mb-8 text-sm">
-              Real quotes from real podcast interviews. Zero AI. 100% free.
+              Synthesized advice from real podcast interviews. 100% free.
             </p>
 
             <SearchInput
@@ -281,9 +343,21 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Quote Cards */}
+            {/* Synthesized Answer */}
+            <SynthesizedAnswer
+              text={synthesizedText}
+              isStreaming={isSynthesizing}
+              error={synthesisError}
+            />
+
+            {/* Source Quotes */}
             {mode === 'advisor' || !linkedInPost ? (
               <div className="space-y-4">
+                {(synthesizedText || synthesisError) && results.length > 0 && (
+                  <div className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">
+                    Source transcripts
+                  </div>
+                )}
                 {grouped.map(group => (
                   <div key={group.guest}>
                     {group.results.map((result, i) => (

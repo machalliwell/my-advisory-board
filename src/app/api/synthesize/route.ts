@@ -8,28 +8,10 @@ interface ChunkInput {
   text: string;
 }
 
-function buildSystemPrompt(mode: string, chunks: ChunkInput[]): string {
+function buildAdvisorPrompt(chunks: ChunkInput[]): string {
   const guestContext = chunks
     .map(c => `**${c.guest}** (from "${c.title}"):\n"${c.text}"`)
     .join('\n\n---\n\n');
-
-  if (mode === 'linkedin') {
-    return `You are the Lenny's Podcast LinkedIn Content Generator — you help product managers create thought-leadership posts based on real quotes from Lenny's Podcast episodes.
-
-Generate a LinkedIn post draft with this structure:
-1. HOOK (1-2 lines): A provocative opening that stops the scroll.
-2. INSIGHT (3-5 short paragraphs): The core insight, attributed to specific guests. Use their names and real quotes from the transcripts below.
-3. YOUR TAKE: Write "[YOUR TAKE: Add 2-3 sentences about how this applies to your own experience]"
-4. CTA: End with a question that invites engagement.
-
-Format for LinkedIn: short paragraphs, line breaks between each point, conversational tone. Aim for 150-250 words total.
-
-Here are the real transcript excerpts to draw from:
-
-${guestContext}
-
-IMPORTANT: Only use insights that are actually present in the transcript excerpts above. Attribute advice to the correct guest. Do not invent quotes.`;
-  }
 
   return `You are the Lenny's Podcast Advisory Bot — a tool that synthesizes product management wisdom from real podcast transcript excerpts.
 
@@ -49,6 +31,68 @@ ${guestContext}
 IMPORTANT: Only use insights that are actually present in the transcript excerpts above. Attribute advice to the correct guest. Do not invent quotes or attribute things to guests who didn't say them. If the excerpts don't fully answer the question, say so honestly and share what IS covered.`;
 }
 
+function buildContentPrompt(
+  mode: 'linkedin' | 'blog',
+  style: string,
+  synthesizedAnswer: string
+): string {
+  const styleInstructions: Record<string, string> = {
+    storytelling: 'Write in a narrative style. Open with a relatable scenario or anecdote. Build tension, deliver the insight, and close with a takeaway. Make the reader feel like they lived through a learning moment.',
+    contrarian: 'Take a bold, counterintuitive angle. Challenge a widely held belief in the industry. Open with a provocative statement that makes people stop scrolling. Back it up with the substance from the insights.',
+    listicle: 'Structure as numbered takeaways that are easy to scan. Each point should be punchy and self-contained. Use clear headers or numbers. Make it bookmarkable.',
+    reflection: 'Write in thoughtful first-person. Share the insight as if reflecting on a lesson learned. Be vulnerable and authentic. Make the reader think "I\'ve been there too."',
+    'data-driven': 'Lead with frameworks, metrics, or structured thinking. Reference specific methodologies. Make it analytical and substantive. Appeal to the reader\'s logical side.',
+    conversational: 'Write like you\'re talking to a smart friend over coffee. Keep it casual, warm, and relatable. Use short sentences. Throw in a rhetorical question or two.',
+  };
+
+  const styleGuide = styleInstructions[style] || styleInstructions['conversational'];
+
+  if (mode === 'linkedin') {
+    return `You are a thought leadership content writer. Transform the following synthesized advisory board answer into a compelling LinkedIn post.
+
+STYLE: ${style.toUpperCase()}
+${styleGuide}
+
+RULES:
+- 150-250 words
+- Do NOT use the format "I asked X experts..." — be creative and original
+- Do NOT list experts by name like a roster — weave insights naturally
+- Short paragraphs (1-3 sentences each) with line breaks between them
+- Open with a hook that stops the scroll
+- Close with a question or call to reflection
+- Sound like a real person sharing genuine insight, not a content machine
+- No hashtags
+- No "Built with PM Advisory Board" or tool attributions
+
+Here is the synthesized answer to transform:
+
+${synthesizedAnswer}`;
+  }
+
+  // Blog mode
+  return `You are a thought leadership content writer. Transform the following synthesized advisory board answer into a compelling blog post.
+
+STYLE: ${style.toUpperCase()}
+${styleGuide}
+
+RULES:
+- 500-800 words
+- Do NOT use the format "I asked X experts..." — be creative and original
+- Do NOT list experts by name like a roster — weave insights naturally into the narrative
+- Use a compelling title (prefix with "# ")
+- Use subheadings (prefix with "## ") to break up sections
+- Write in a clear, engaging voice
+- Include actionable takeaways
+- Open with a hook paragraph
+- Close with a strong conclusion or call to action
+- Sound like a real person sharing genuine insight, not a content machine
+- No "Built with PM Advisory Board" or tool attributions
+
+Here is the synthesized answer to transform:
+
+${synthesizedAnswer}`;
+}
+
 export async function POST(request: NextRequest) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -58,20 +102,50 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { query, chunks, mode } = await request.json() as {
-    query: string;
-    chunks: ChunkInput[];
+  const body = await request.json();
+  const { query, chunks, mode, style, synthesizedAnswer } = body as {
+    query?: string;
+    chunks?: ChunkInput[];
     mode: string;
+    style?: string;
+    synthesizedAnswer?: string;
   };
 
-  if (!query || !chunks || chunks.length === 0) {
+  let systemPrompt: string;
+  let userMessage: string;
+  let maxTokens: number;
+  let temperature: number;
+
+  if (mode === 'advisor') {
+    // Advisory mode: synthesize from chunks
+    if (!query || !chunks || chunks.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'Missing query or chunks' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    systemPrompt = buildAdvisorPrompt(chunks);
+    userMessage = query;
+    maxTokens = 1500;
+    temperature = 0.7;
+  } else if (mode === 'linkedin' || mode === 'blog') {
+    // Content generation: transform synthesized answer
+    if (!synthesizedAnswer) {
+      return new Response(
+        JSON.stringify({ error: 'Missing synthesizedAnswer for content generation' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    systemPrompt = buildContentPrompt(mode, style || 'conversational', synthesizedAnswer);
+    userMessage = query || 'Generate the content based on the synthesized answer provided.';
+    maxTokens = mode === 'blog' ? 2500 : 1500;
+    temperature = 0.8;
+  } else {
     return new Response(
-      JSON.stringify({ error: 'Missing query or chunks' }),
+      JSON.stringify({ error: 'Invalid mode' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
-
-  const systemPrompt = buildSystemPrompt(mode, chunks);
 
   const groqResponse = await fetch(GROQ_API_URL, {
     method: 'POST',
@@ -83,10 +157,10 @@ export async function POST(request: NextRequest) {
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: query },
+        { role: 'user', content: userMessage },
       ],
-      max_tokens: 1500,
-      temperature: 0.7,
+      max_tokens: maxTokens,
+      temperature,
       stream: true,
     }),
   });

@@ -1,15 +1,13 @@
 'use client';
 
-import { SearchResult, ExpertTier } from '@/lib/types';
-import { getTierColor, getTierBg } from '@/lib/game';
+import { SearchResult } from '@/lib/types';
 import { trimQuote } from '@/lib/search';
 
 interface QuoteCardProps {
   result: SearchResult;
-  tier: ExpertTier;
 }
 
-export default function QuoteCard({ result, tier }: QuoteCardProps) {
+export default function QuoteCard({ result }: QuoteCardProps) {
   const { chunk } = result;
   const trimmedText = trimQuote(chunk.text);
 
@@ -18,11 +16,6 @@ export default function QuoteCard({ result, tier }: QuoteCardProps) {
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className="font-serif font-bold text-white">{chunk.guest}</span>
-        <span
-          className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium uppercase tracking-wider ${getTierBg(tier)} ${getTierColor(tier)}`}
-        >
-          {tier}
-        </span>
       </div>
 
       {/* Quote */}

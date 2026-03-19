@@ -1,19 +1,15 @@
 'use client';
 
-import { AppMode } from '@/lib/types';
-
 interface SearchInputProps {
   query: string;
   onQueryChange: (q: string) => void;
   onSearch: (q: string) => void;
-  mode: AppMode;
 }
 
 export default function SearchInput({
   query,
   onQueryChange,
   onSearch,
-  mode,
 }: SearchInputProps) {
   return (
     <form
@@ -27,11 +23,7 @@ export default function SearchInput({
         type="text"
         value={query}
         onChange={e => onQueryChange(e.target.value)}
-        placeholder={
-          mode === 'advisor'
-            ? 'Ask your advisory board a question...'
-            : 'What topic should your LinkedIn post cover?'
-        }
+        placeholder="Ask your advisory board a question..."
         className="w-full px-4 py-3 pl-11 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none search-glow transition-shadow text-sm"
         autoFocus
       />

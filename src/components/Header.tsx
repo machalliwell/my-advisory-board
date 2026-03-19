@@ -1,84 +1,40 @@
 'use client';
 
-import { AppMode, GameState } from '@/lib/types';
-import { getLevelInfo } from '@/lib/game';
-
 interface HeaderProps {
-  mode: AppMode;
-  onModeChange: (mode: AppMode) => void;
-  gameState: GameState;
-  levelInfo: ReturnType<typeof getLevelInfo>;
-  onStatsClick: () => void;
+  onReset?: () => void;
+  hasSearched: boolean;
 }
 
-export default function Header({
-  mode,
-  onModeChange,
-  gameState,
-  levelInfo,
-  onStatsClick,
-}: HeaderProps) {
+export default function Header({ onReset, hasSearched }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 bg-[#0a0a0f]/90 backdrop-blur-md border-b border-white/5">
       <div className="max-w-3xl mx-auto px-4">
         <div className="flex items-center justify-between h-14">
           {/* Logo + Title */}
-          <div className="flex items-center gap-2">
+          <button
+            onClick={onReset}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-lg">
               🎙️
             </div>
             <span className="font-serif text-lg font-bold hidden sm:inline">
               PM Advisory Board
             </span>
-          </div>
+          </button>
 
-          {/* Mode Toggle */}
-          <div className="flex items-center bg-white/5 rounded-lg p-0.5">
+          {/* Reset button when in results */}
+          {hasSearched && (
             <button
-              onClick={() => onModeChange('advisor')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                mode === 'advisor'
-                  ? 'bg-purple-500/20 text-purple-300'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
+              onClick={onReset}
+              className="px-4 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white text-sm font-medium transition-colors flex items-center gap-2"
             >
-              🧠 Advisor
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              New Question
             </button>
-            <button
-              onClick={() => onModeChange('linkedin')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                mode === 'linkedin'
-                  ? 'bg-orange-500/20 text-orange-300'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              ✍️ LinkedIn
-            </button>
-          </div>
-
-          {/* Right side: streak + level */}
-          <div className="flex items-center gap-3">
-            {gameState.streak > 0 && (
-              <span className="text-sm font-medium text-orange-400">
-                🔥 {gameState.streak}
-              </span>
-            )}
-            <button
-              onClick={onStatsClick}
-              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-lg transition-colors"
-              title={`${gameState.levelTitle} - ${gameState.xp} XP`}
-            >
-              {gameState.levelEmoji}
-            </button>
-          </div>
-        </div>
-
-        {/* XP Progress Bar */}
-        <div className="h-1 bg-white/5 rounded-full -mt-px mb-0">
-          <div
-            className="h-full rounded-full xp-bar transition-all duration-500"
-            style={{ width: `${Math.min(levelInfo.progress * 100, 100)}%` }}
-          />
+          )}
         </div>
       </div>
     </header>

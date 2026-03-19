@@ -32,33 +32,6 @@ body {
   box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.3), 0 0 20px rgba(168, 85, 247, 0.15);
 }
 
-/* Achievement toast animation */
-@keyframes slideDown {
-  from { transform: translateY(-100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-@keyframes slideUp {
-  from { transform: translateY(0); opacity: 1; }
-  to { transform: translateY(-100%); opacity: 0; }
-}
-.toast-enter {
-  animation: slideDown 0.3s ease-out;
-}
-.toast-exit {
-  animation: slideUp 0.3s ease-in forwards;
-}
-
-/* XP progress bar shimmer */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-.xp-bar {
-  background: linear-gradient(90deg, var(--purple-accent), var(--indigo-accent), var(--purple-accent));
-  background-size: 200% 100%;
-  animation: shimmer 3s ease-in-out infinite;
-}
-
 /* Card hover effect */
 .quote-card {
   transition: transform 0.2s, box-shadow 0.2s;

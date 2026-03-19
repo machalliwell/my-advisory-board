@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   SearchIndex,
   SearchResult,
   GroupedResults,
-  AppMode,
-  Achievement,
-  GameState,
+  ContentStyle,
+  ContentFormat,
 } from '@/lib/types';
 import {
   loadSearchIndex,
@@ -15,27 +14,17 @@ import {
   groupResultsByGuest,
   getTopicEpisodes,
   trimQuote,
-  formatLinkedInPost,
+  getAllGuests,
+  getTopicCategories,
 } from '@/lib/search';
-import {
-  createInitialGameState,
-  processSearch,
-  processLinkedInPost,
-  getLevelInfo,
-  getAllExperts,
-  getExpertTier,
-  getTierColor,
-  getTierBg,
-} from '@/lib/game';
 import Header from '@/components/Header';
 import SearchInput from '@/components/SearchInput';
 import QuoteCard from '@/components/QuoteCard';
-import ExpertGrid from '@/components/ExpertGrid';
+import ExpertDirectory from '@/components/ExpertDirectory';
 import TopicPills from '@/components/TopicPills';
-import StatsModal from '@/components/StatsModal';
-import AchievementToast from '@/components/AchievementToast';
-import LinkedInPreview from '@/components/LinkedInPreview';
 import SynthesizedAnswer from '@/components/SynthesizedAnswer';
+import ContentStylePicker from '@/components/ContentStylePicker';
+import ContentPreview from '@/components/ContentPreview';
 
 const SUGGESTED_QUESTIONS = [
   'How do I prioritize my roadmap?',
@@ -51,20 +40,20 @@ const SUGGESTED_QUESTIONS = [
 export default function Home() {
   const [index, setIndex] = useState<SearchIndex | null>(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<AppMode>('advisor');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [grouped, setGrouped] = useState<GroupedResults[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
-  const [gameState, setGameState] = useState<GameState>(createInitialGameState());
-  const [showStats, setShowStats] = useState(false);
-  const [toasts, setToasts] = useState<Achievement[]>([]);
-  const [linkedInPost, setLinkedInPost] = useState('');
-  const [copied, setCopied] = useState(false);
   const [activeQuery, setActiveQuery] = useState('');
   const [synthesizedText, setSynthesizedText] = useState('');
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
+
+  // Content generation state
+  const [generatedContent, setGeneratedContent] = useState('');
+  const [contentFormat, setContentFormat] = useState<ContentFormat>('linkedin');
+  const [isGeneratingContent, setIsGeneratingContent] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     loadSearchIndex().then(idx => {
@@ -73,16 +62,11 @@ export default function Home() {
     });
   }, []);
 
-  const showToast = useCallback((achievements: Achievement[]) => {
-    if (achievements.length === 0) return;
-    setToasts(prev => [...prev, ...achievements]);
-    setTimeout(() => {
-      setToasts(prev => prev.slice(achievements.length));
-    }, 3000);
-  }, []);
+  const guests = useMemo(() => (index ? getAllGuests(index) : []), [index]);
+  const categories = useMemo(() => (index ? getTopicCategories(index) : []), [index]);
 
   const synthesize = useCallback(
-    async (searchQuery: string, searchResults: SearchResult[], currentMode: AppMode) => {
+    async (searchQuery: string, searchResults: SearchResult[]) => {
       setSynthesizedText('');
       setSynthesisError(null);
       setIsSynthesizing(true);
@@ -97,7 +81,7 @@ export default function Home() {
         const res = await fetch('/api/synthesize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: searchQuery, chunks, mode: currentMode }),
+          body: JSON.stringify({ query: searchQuery, chunks, mode: 'advisor' }),
         });
 
         if (!res.ok) {
@@ -136,20 +120,14 @@ export default function Home() {
       setGrouped(groupResultsByGuest(searchResults));
       setHasSearched(true);
       setActiveQuery(searchQuery);
-      setLinkedInPost('');
+      setGeneratedContent('');
       setCopied(false);
 
-      // Process game state
-      const update = processSearch(gameState, searchResults);
-      setGameState(update.newState);
-      showToast(update.newAchievements);
-
-      // Synthesize answer from results
       if (searchResults.length > 0) {
-        synthesize(searchQuery, searchResults, mode);
+        synthesize(searchQuery, searchResults);
       }
     },
-    [index, gameState, showToast, synthesize, mode]
+    [index, synthesize]
   );
 
   const handleTopicClick = useCallback(
@@ -161,39 +139,91 @@ export default function Home() {
       setHasSearched(true);
       setActiveQuery(topic);
       setQuery(topic);
-      setLinkedInPost('');
+      setGeneratedContent('');
       setCopied(false);
 
-      const update = processSearch(gameState, topicResults);
-      setGameState(update.newState);
-      showToast(update.newAchievements);
-
-      // Synthesize answer from results
       if (topicResults.length > 0) {
-        synthesize(`What do Lenny's guests recommend about ${topic}?`, topicResults, mode);
+        synthesize(`What do Lenny's guests recommend about ${topic}?`, topicResults);
       }
     },
-    [index, gameState, showToast, synthesize, mode]
+    [index, synthesize]
   );
 
-  const handleLinkedInGenerate = useCallback(() => {
-    const post = formatLinkedInPost(results, activeQuery);
-    setLinkedInPost(post);
+  const handleGuestClick = useCallback(
+    (guestName: string) => {
+      setQuery(guestName);
+      handleSearch(guestName);
+    },
+    [handleSearch]
+  );
 
-    const update = processLinkedInPost(gameState, mode === 'advisor');
-    setGameState(update.newState);
-    showToast(update.newAchievements);
-  }, [results, activeQuery, gameState, mode, showToast]);
+  const handleReset = useCallback(() => {
+    setQuery('');
+    setResults([]);
+    setGrouped([]);
+    setHasSearched(false);
+    setGeneratedContent('');
+    setActiveQuery('');
+    setSynthesizedText('');
+    setSynthesisError(null);
+    setCopied(false);
+    setIsGeneratingContent(false);
+  }, []);
+
+  const handleGenerateContent = useCallback(
+    async (format: ContentFormat, style: ContentStyle) => {
+      if (!synthesizedText) return;
+
+      setGeneratedContent('');
+      setContentFormat(format);
+      setIsGeneratingContent(true);
+      setCopied(false);
+
+      try {
+        const res = await fetch('/api/synthesize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: format,
+            style,
+            synthesizedAnswer: synthesizedText,
+            query: activeQuery,
+          }),
+        });
+
+        if (!res.ok) {
+          setIsGeneratingContent(false);
+          return;
+        }
+
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          setGeneratedContent(fullText);
+        }
+      } catch {
+        // Silent fail — user can retry
+      } finally {
+        setIsGeneratingContent(false);
+      }
+    },
+    [synthesizedText, activeQuery]
+  );
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(linkedInPost);
+      await navigator.clipboard.writeText(generatedContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback
       const textarea = document.createElement('textarea');
-      textarea.value = linkedInPost;
+      textarea.value = generatedContent;
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
@@ -201,20 +231,7 @@ export default function Home() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [linkedInPost]);
-
-  const handleNewQuestion = useCallback(() => {
-    setQuery('');
-    setResults([]);
-    setGrouped([]);
-    setHasSearched(false);
-    setLinkedInPost('');
-    setActiveQuery('');
-    setSynthesizedText('');
-    setSynthesisError(null);
-  }, []);
-
-  const levelInfo = getLevelInfo(gameState.xp);
+  }, [generatedContent]);
 
   if (loading) {
     return (
@@ -231,30 +248,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
-      {/* Achievement Toasts */}
-      <div className="fixed top-0 left-0 right-0 z-50 flex flex-col items-center">
-        {toasts.map((achievement, i) => (
-          <AchievementToast key={achievement.id + i} achievement={achievement} />
-        ))}
-      </div>
-
-      {/* Stats Modal */}
-      {showStats && (
-        <StatsModal
-          gameState={gameState}
-          levelInfo={levelInfo}
-          onClose={() => setShowStats(false)}
-        />
-      )}
-
       {/* Header */}
-      <Header
-        mode={mode}
-        onModeChange={setMode}
-        gameState={gameState}
-        levelInfo={levelInfo}
-        onStatsClick={() => setShowStats(true)}
-      />
+      <Header onReset={handleReset} hasSearched={hasSearched} />
 
       {/* Main Content */}
       <main className="max-w-3xl mx-auto px-4 pb-20">
@@ -262,9 +257,7 @@ export default function Home() {
           /* Home State */
           <div className="pt-8">
             <h1 className="font-serif text-3xl md:text-4xl text-center mb-2">
-              {mode === 'advisor'
-                ? 'Ask 312 product leaders anything'
-                : 'Draft your next viral LinkedIn post'}
+              Ask 312 product leaders anything
             </h1>
             <p className="text-gray-400 text-center mb-8 text-sm">
               Synthesized advice from real podcast interviews. 100% free.
@@ -274,7 +267,6 @@ export default function Home() {
               query={query}
               onQueryChange={setQuery}
               onSearch={handleSearch}
-              mode={mode}
             />
 
             {/* Suggested Questions */}
@@ -293,10 +285,19 @@ export default function Home() {
               ))}
             </div>
 
-            {/* Expert Collection */}
+            {/* Expert Directory */}
             <div className="mt-10">
-              <h2 className="font-serif text-xl mb-4">Expert Collection</h2>
-              <ExpertGrid collectedExperts={gameState.collectedExperts} />
+              <h2 className="font-serif text-xl mb-4">
+                Expert Directory
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  {guests.length} guests
+                </span>
+              </h2>
+              <ExpertDirectory
+                guests={guests}
+                categories={categories}
+                onGuestClick={handleGuestClick}
+              />
             </div>
 
             {/* Topics */}
@@ -312,23 +313,19 @@ export default function Home() {
               query={query}
               onQueryChange={setQuery}
               onSearch={handleSearch}
-              mode={mode}
             />
 
-            {/* Mode badge + result count */}
-            <div className="flex items-center gap-2 mt-4 mb-4">
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  mode === 'advisor'
-                    ? 'bg-purple-500/20 text-purple-300'
-                    : 'bg-orange-500/20 text-orange-300'
-                }`}
-              >
-                {mode === 'advisor' ? '🧠 Advisor' : '✍️ LinkedIn'}
-              </span>
+            {/* Result count + reset */}
+            <div className="flex items-center justify-between mt-4 mb-4">
               <span className="text-gray-500 text-sm">
-                {results.length} quotes from {grouped.length} experts
+                {results.length} quotes from {grouped.length} expert{grouped.length !== 1 ? 's' : ''}
               </span>
+              <button
+                onClick={handleReset}
+                className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+              >
+                Reset Board
+              </button>
             </div>
 
             {/* Board members consulted */}
@@ -336,7 +333,7 @@ export default function Home() {
               {grouped.map(g => (
                 <span
                   key={g.guest}
-                  className={`text-xs px-2 py-1 rounded-full border ${getTierBg(g.tier)}`}
+                  className="text-xs px-2 py-1 rounded-full border bg-purple-400/10 border-purple-400/20 text-purple-300"
                 >
                   {g.guest}
                 </span>
@@ -350,50 +347,49 @@ export default function Home() {
               error={synthesisError}
             />
 
-            {/* Source Quotes */}
-            {mode === 'advisor' || !linkedInPost ? (
-              <div className="space-y-4">
-                {(synthesizedText || synthesisError) && results.length > 0 && (
-                  <div className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">
-                    Source transcripts
-                  </div>
-                )}
-                {grouped.map(group => (
-                  <div key={group.guest}>
-                    {group.results.map((result, i) => (
-                      <QuoteCard
-                        key={`${result.chunk.episodeId}-${i}`}
-                        result={result}
-                        tier={group.tier}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {/* LinkedIn Preview */}
-            {linkedInPost && (
-              <LinkedInPreview
-                post={linkedInPost}
-                copied={copied}
-                onCopy={handleCopy}
+            {/* Content Generation */}
+            {synthesizedText && !isSynthesizing && !generatedContent && (
+              <ContentStylePicker
+                onGenerate={handleGenerateContent}
+                isGenerating={isGeneratingContent}
               />
             )}
 
-            {/* Action buttons */}
-            <div className="flex flex-wrap gap-3 mt-6">
-              {!linkedInPost && results.length > 0 && (
-                <button
-                  onClick={handleLinkedInGenerate}
-                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-orange-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 transition-opacity"
-                >
-                  ✍️ Turn into LinkedIn post (+20 XP)
-                </button>
+            {/* Generated Content Preview */}
+            {(generatedContent || isGeneratingContent) && (
+              <ContentPreview
+                content={generatedContent}
+                format={contentFormat}
+                copied={copied}
+                onCopy={handleCopy}
+                isStreaming={isGeneratingContent}
+              />
+            )}
+
+            {/* Source Quotes */}
+            <div className="space-y-4 mt-6">
+              {(synthesizedText || synthesisError) && results.length > 0 && (
+                <div className="text-xs text-gray-500 uppercase tracking-wider font-medium mb-2">
+                  Source transcripts
+                </div>
               )}
+              {grouped.map(group => (
+                <div key={group.guest}>
+                  {group.results.map((result, i) => (
+                    <QuoteCard
+                      key={`${result.chunk.episodeId}-${i}`}
+                      result={result}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom reset */}
+            <div className="flex justify-center mt-8">
               <button
-                onClick={handleNewQuestion}
-                className="px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition-colors"
+                onClick={handleReset}
+                className="px-6 py-2.5 rounded-lg bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition-colors"
               >
                 Ask another question
               </button>

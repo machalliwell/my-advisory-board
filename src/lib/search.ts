@@ -1,5 +1,4 @@
-import { SearchIndex, WisdomChunk, SearchResult, GroupedResults } from './types';
-import { getExpertTier } from './game';
+import { SearchIndex, SearchResult, GroupedResults } from './types';
 
 let cachedIndex: SearchIndex | null = null;
 
@@ -32,21 +31,13 @@ export function searchChunks(
     const keywordsJoined = chunk.keywords.join(' ').toLowerCase();
 
     for (const token of queryTokens) {
-      // Text matches (count occurrences)
       const textMatches = (textLower.match(new RegExp(token, 'g')) || []).length;
       score += textMatches * 2;
-
-      // Guest name match (high value)
       if (guestLower.includes(token)) score += 10;
-
-      // Title match
       if (titleLower.includes(token)) score += 5;
-
-      // Keywords match
       if (keywordsJoined.includes(token)) score += 3;
     }
 
-    // Exact phrase match bonus
     const queryLower = query.toLowerCase();
     if (textLower.includes(queryLower)) score += 15;
 
@@ -72,7 +63,6 @@ export function groupResultsByGuest(results: SearchResult[]): GroupedResults[] {
 
   return Array.from(groups.entries()).map(([guest, results]) => ({
     guest,
-    tier: getExpertTier(guest),
     results,
   }));
 }
@@ -99,20 +89,38 @@ export function trimQuote(text: string, maxWords: number = 200): string {
   return words.slice(0, maxWords).join(' ') + '...';
 }
 
-export function formatLinkedInPost(results: SearchResult[], query: string): string {
-  const topResults = results.slice(0, 4);
-  let post = `I asked ${topResults.length} product leaders: "${query}"\n\nHere's what they said 👇\n\n`;
-
-  for (let i = 0; i < topResults.length; i++) {
-    const { chunk } = topResults[i];
-    const quote = trimQuote(chunk.text, 60);
-    post += `${i + 1}. ${chunk.guest}:\n"${quote}"\n\n`;
+/** Get all unique guests from the search index with their topic associations */
+export function getAllGuests(index: SearchIndex): { guest: string; topics: string[] }[] {
+  // Build episode-to-topics reverse map
+  const episodeTopics: Record<string, string[]> = {};
+  for (const [topic, slugs] of Object.entries(index.topics)) {
+    for (const slug of slugs) {
+      if (!episodeTopics[slug]) episodeTopics[slug] = [];
+      episodeTopics[slug].push(topic);
+    }
   }
 
-  post += `---\n\n`;
-  post += `These insights come from real conversations on Lenny's Podcast.\n`;
-  post += `Built with PM Advisory Board — a free tool to search 312+ expert interviews.\n\n`;
-  post += `♻️ Repost if this was helpful\n💬 Which advice resonates most with you?`;
+  // Build guest list from episodes
+  const guestMap = new Map<string, Set<string>>();
+  for (const ep of index.episodes) {
+    if (!guestMap.has(ep.guest)) {
+      guestMap.set(ep.guest, new Set());
+    }
+    const topics = episodeTopics[ep.id] || [];
+    for (const t of topics) {
+      guestMap.get(ep.guest)!.add(t);
+    }
+  }
 
-  return post;
+  return Array.from(guestMap.entries())
+    .map(([guest, topicSet]) => ({
+      guest,
+      topics: Array.from(topicSet),
+    }))
+    .sort((a, b) => a.guest.localeCompare(b.guest));
+}
+
+/** Get unique topic categories available in the index */
+export function getTopicCategories(index: SearchIndex): string[] {
+  return Object.keys(index.topics).sort();
 }
